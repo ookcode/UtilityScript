@@ -10,6 +10,7 @@
 import os
 import sys
 import struct
+
 SIGN_KEY = "xors"
 SIGN_LEN = len(SIGN_KEY)
 KEY = "vincent"
@@ -46,12 +47,12 @@ def xor_operator(file_path, isEncrypt):
 
 	if isEncrypt :
 		for i in range(0, SIGN_LEN):
-			new_file.write(struct.pack('B',ord(SIGN_KEY[i])))
+			new_file.write(struct.pack('B', ord(SIGN_KEY[i])))
 
 	index = 0
 	for i in range(0, len(content)):
 		doxor = content[i] ^ ord(KEY[index % KEY_LEN])
-		new_file.write(struct.pack('B',doxor))
+		new_file.write(struct.pack('B', doxor))
 		index = index + 1
 
 	new_file.close()
