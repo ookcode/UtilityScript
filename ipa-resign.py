@@ -2,7 +2,7 @@
 #coding:utf-8
 ###################################################
 #
-# Provide your mobileprovision file, resign the ipa
+# provide your mobileprovision file, resign the ipa
 #
 # Created by Vincent on 16-1-11.
 #
