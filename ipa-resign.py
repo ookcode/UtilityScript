@@ -1,5 +1,5 @@
 #!/bin/python2
-#encoding:utf-8
+#coding:utf-8
 ###################################################
 #
 # Provide your mobileprovision file, resign the ipa

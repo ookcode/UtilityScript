@@ -1,5 +1,5 @@
 #!/bin/python2
-#encoding:utf-8
+#coding:utf-8
 ###################################################
 #
 # Provide one image and it will generation all sizes of icons for iOS and Android
