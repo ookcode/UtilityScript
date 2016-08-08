@@ -1,8 +1,8 @@
 #!/bin/python2
-#encoding:utf-8
+#coding:utf-8
 ###################################################
 #
-# Provide one image and it will generation all sizes of icons for iOS and Android
+# provide one image, generation all sizes of icons for iOS and Android
 #
 # Created by Vincent on 16-1-10.
 #
