@@ -68,6 +68,7 @@ class Scanner():
 		return content
 
 	def scan(self, file_path):
+		self._clear()
 		content = self._readFile(file_path)
 		isPrintName = False
 		diffLen = len(MULTI_SIGN_BEGIN) - len(SINGLE_SIGN)
