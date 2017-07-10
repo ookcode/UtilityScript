@@ -1,184 +1,144 @@
-#!/bin/python2
+#!/bin/python3
 #coding:utf-8
-###################################################
-#
-# provide your mobileprovision file, resign the ipa
-#
-# Created by Vincent on 16-1-11.
-#
-###################################################
-import sys,os
-import string
-import commands
+import os
+import sys
+import subprocess
+import re
+import biplist
 import shutil
-########################################################
+###################################################
 #
-#	get the string value in plist
+#	ipa重签名工具
+#	Created by Vincent Yao on 17-07-10.
 #
-########################################################
-def getValueWithKeyInPlist(key,plist_str):
-	p1 = plist_str.find(key)
-	if p1 == -1 :
-		print "Error : " + key + " not found"
-		sys.exit();
-	p1 = plist_str.find("<string>",p1) + len("<string>")
-	p2 = plist_str.find("</string>",p1)
-	return plist_str[p1:p2]
+###################################################
+def getWrapped(text, beginKey, endKey):
+	match = re.findall('{}.*{}'.format(beginKey, endKey), text)
+	wraplist = []
+	for value in match:
+		wraplist.append(value[len(beginKey) : -len(endKey)])
+	return wraplist
 
-########################################################
-#
-#	get getAppID in .mobileprovision file
-#
-########################################################
-def getAppID(mobileprovision):
-	status, output = commands.getstatusoutput("security cms -D -i " + mobileprovision)
-	appID = getValueWithKeyInPlist("application-identifier",output)
-	#Prefix = AppID[:AppID.find(".")]
-	#BundleID = AppID[AppID.find(".") + 1:]
-	return appID
+def getCerContentByName(name):
+	output = subprocess.getoutput("security find-certificate -c '{}' -p".format(name))
+	content = "".join(output.split("\n")[1:-1])
+	return content
 
-########################################################
-#
-#	get cer list in toolchain
-#
-########################################################
-def getAndShowCerList():
-	status, output = commands.getstatusoutput("security find-identity -v -p codesigning")
-	arr = output.split('\"')
-	if len(arr) == 1 :
-		print "Error : .cer not found in toolchain"
-		sys.exit()
-	cers = []
-	for i in range(1, len(arr), 2):
-		cers.append(arr[i])
-		print str(len(cers)) + ": " + arr[i]
-	return cers
-
-########################################################
-#
-#	create entitlements file
-#
-########################################################
-def createEntitlementsFile(basepath, appID):
-	prefix = appID[:appID.find(".")]
-	filePath = os.path.join(basepath,"Entitlements.plist")
+def createEntitlementsFile(path, team_id, bundle_id):
+	file_path = os.path.join(path, "Entitlements.plist")
 	content = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
 	"<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"
 	"<plist version=\"1.0\">"
 	"<dict>"
 		"<key>application-identifier</key>"
-		"<string>" + appID + "</string>"
+		"<string>" + team_id + "." + bundle_id + "</string>"
 		"<key>com.apple.developer.team-identifier</key>"
-		"<string>" + prefix + "</string>"
+		"<string>" + team_id + "</string>"
 		"<key>get-task-allow</key>"
 		"<false/>"
 		"<key>keychain-access-groups</key>"
 		"<array>"
-			"<string>" + appID + "</string>"
+			"<string>" + team_id + "." + bundle_id + "</string>"
 		"</array>"
 	"</dict>"
 	"</plist>"
 	)
-	file_object = open(filePath, 'w')
-	file_object.write(content)
-	file_object.close()
-	return filePath
+	f = open(file_path, 'w')
+	f.write(content)
+	f.close()
+	return file_path
+
+def log(*params):
+	print(*params)
+
+def error(*params):
+	log(*params)
+	sys.exit()
 
 def main():
-	#get the necessary file
-	ipa = raw_input("please drag in .ipa : ")
-	mobileprovision = raw_input("please drag in .mobileprovision : ")
+	ipa = input("请拖入要重签名的.ipa：").strip()
+	provision = input("请拖入对应的签名文件.mobileprovision：").strip()
 
-	ipa = ipa.strip() #remove space
-	mobileprovision = mobileprovision.strip() #remove space
-	
-	#get BundleID in .mobileprovision file
-	appID = getAppID(mobileprovision)
-	print "the appID in mobileprovision is " + appID
+	log("● 正在获取本地证书列表")
+	output = subprocess.getoutput("security find-identity -v -p codesigning")
+	wraplist = getWrapped(output, "\"", "\"")
 
-	#select a cer
-	cers = getAndShowCerList()
-	selectCer = ""
-	while True:
-		inputstr = raw_input("please enter the cer number : ")
-		number = 0;
-		try:
-			number = int(inputstr)
-		except:
-			print "input error"
-
-		if number > 0 and number <= len(cers):
-			selectCer = cers[number - 1]
-			break;
-		else:
-			print "Error : no this number"
-
-	print "you select " + selectCer
-
-	#unzip ipa
-	print "step1 : unzip .ipa"
-	basePath = os.path.dirname(ipa)
-	unzipPath = os.path.join(basePath, ".ipa_resign_temp")
-	if os.path.exists(unzipPath) :
-		shutil.rmtree(unzipPath,True)
-	status, output = commands.getstatusoutput("unzip " + ipa + " -d " + unzipPath)
-	print "unzip successfully"
-
-	#get .app in ipa
-	payloadPath = os.path.join(unzipPath, "Payload")
-	for li in os.listdir(payloadPath):
-		if not li == ".DS_Store":
-			appDir = os.path.join(payloadPath,li)
+	log("● 正在解析签名文件")
+	output = subprocess.getoutput("security cms -D -i " + provision)
+	output = output[output.find("<?xml"):]
+	cer_content = getWrapped(output, "<data>", "</data>")[0]
+	match_cer = None
+	for name in wraplist:
+		content = getCerContentByName(name)
+		if cer_content == content:
+			match_cer = name
 			break
 
-	#delete sign file
-	print "step2 : delete _CodeSignature"
-	signDir = os.path.join(appDir,"_CodeSignature")
-	if os.path.exists(signDir) :
-		shutil.rmtree(signDir,True)
+	if match_cer == None:
+		error("× 没有安装该证书对应的签名文件")
 
-	#copy .mobileprovision into package
-	print "step3 : copy .mobileprovision"
-	shutil.copyfile(mobileprovision, os.path.join(appDir, "embedded.mobileprovision"))
+	try:
+		plist = biplist.readPlistFromString(bytes(output, "utf-8"))
+		identify = plist['Entitlements']['application-identifier']
+		pos = identify.find('.')
+		provision_uuid = plist['UUID']
+		provision_name = plist['Name']
+		provision_team = identify[:pos]
+		provision_id = identify[pos + 1:]
+	except Exception as e:
+		error("× 签名文件解析失败")
 
-	#create entitlements file
-	print "step4 : create entitlements file"
-	entitlements = createEntitlementsFile(unzipPath, appID)
 
-	#modify bundleID in info.plist
-	print "step5 : modify bundleID in info.plist"
-	bundleID = appID[appID.find(".") + 1:]
-	infoPlist = os.path.join(appDir, "Info.plist")
-	infoPlist = infoPlist.replace(" ","\ ")
-	os.system("echo " + bundleID + " | pbcopy")
-	os.system("open -a xcode " + infoPlist)
-	print "plist file has been opened"
-	print "please overwrite '" + bundleID + "' for key 'Bundle identifier'"
-	print "'" + bundleID +"' has copied into you clipboard"
-	raw_input("if you finish, any key to continue...")
+	log("● 正在解压.ipa")
+	base_path = os.path.dirname(ipa)
+	unzip_path = os.path.join(base_path, ".ipa_resign_temp")
+	if os.path.exists(unzip_path) :
+		shutil.rmtree(unzip_path, True)
+	os.system("unzip -q " + ipa + " -d " + unzip_path)
+	log("● 解压完成")
+	# input("● ipa已经解压到.ipa_resign_temp目录，现在你可以随意修改包内的内容，修改完成后任意键继续")
 
-	#do resign
-	appDir = appDir.replace(" ","\ ")
-	print "step6 : resign"
-	my_commands = "/usr/bin/codesign -f -s \"" + selectCer +"\" --entitlements " + entitlements + " " + appDir
-	os.system(my_commands)
-	#os.system("/usr/bin/codesign --verify " + appDir)
-	#os.system("codesign -vv -d " + appDir)
-	print 'signature replace successfully!'
+	payload = os.path.join(unzip_path, "Payload")
+	app_path = None
+	for file in os.listdir(payload):
+		if re.match(".*\.app", file):
+			app_path = os.path.join(payload, file)
+			break
 
-	#rezip .ipa
-	print "step7 : zip .ipa"
-	resignIpa = ipa[:-4] + "-resign.ipa"
-	my_commands = "cd " + unzipPath
+	log("● 正在删除原始签名文件")
+	sign_path = os.path.join(app_path, "_CodeSignature")
+	if os.path.exists(sign_path) :
+		shutil.rmtree(sign_path, True)
+
+	log("● 正在复制新的签名文件")
+	shutil.copyfile(provision, os.path.join(app_path, "embedded.mobileprovision"))
+
+	log("● 正在修改包名")
+	info_plist = os.path.join(app_path, "Info.plist")
+	try:
+		plist = biplist.readPlist(info_plist)
+		plist["CFBundleIdentifier"] = provision_id
+		biplist.writePlist(plist, info_plist)
+	except Exception as e:
+		error("× Info.plist解析失败", e)
+
+	log("● 正在重签名")
+	entitlements = createEntitlementsFile(unzip_path, provision_team, provision_id)
+	os.system("/usr/bin/codesign -f -s \"{}\" --entitlements {} {}".format(match_cer, entitlements, app_path))
+	# os.system("/usr/bin/codesign --verify " + app_path)
+	# os.system("codesign -vv -d " + app_path)
+	log("● 重签名成功")
+
+	log("● 正在生成新的.ipa")
+	resign_ipa = ipa[:-4] + "-resign.ipa"
+	my_commands = "cd " + unzip_path
 	my_commands = my_commands + ";chmod -R +x Payload"
-	my_commands = my_commands + ";zip -qr " + resignIpa + " Payload"
-	status, output = commands.getstatusoutput(my_commands)
+	my_commands = my_commands + ";zip -qr " + resign_ipa + " Payload"
+	os.system(my_commands)
 
-	#clean
-	shutil.rmtree(unzipPath,True)
-
-	print "all done!"
+	shutil.rmtree(unzip_path, True)
+	os.system("open " + base_path)
+	log("● 任务已完成")
 
 if __name__ == '__main__':
 	main()
-
